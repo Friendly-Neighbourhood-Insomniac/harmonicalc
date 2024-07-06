@@ -1,0 +1,359 @@
+<html><head><base href="https://virtualpiano.com/"><title>HarmoniCalc - Interactive Musical Experience</title><style>
+@import url('https://fonts.googleapis.com/css2?family=Lobster&display=swap');
+
+body {
+    background: #111;
+    color: #fff;
+    font-family: Arial, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    height: 100vh;
+    margin: 0;
+    overflow: hidden;
+}
+.main-container {
+    border: 2px solid #ffd700;
+    border-radius: 10px;
+    padding: 20px;
+    background-color: rgba(0, 0, 0, 0.5);
+    margin-top: 20px;
+    width: 900px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+h1 {
+    font-family: 'Lobster', cursive;
+    font-size: 48px;
+    color: #ffd700;
+    text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+    margin-bottom: 0;
+    text-align: center;
+}
+.subheading {
+    font-family: 'Lobster', cursive;
+    font-size: 16px;
+    color: #cccccc;
+    margin-top: 5px;
+    margin-bottom: 10px;
+    text-align: center;
+}
+.piano-container {
+    display: flex;
+    justify-content: center;
+    width: 100%;
+    position: relative;
+    margin-top: -20px;
+}
+.note-container {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 300px;
+    overflow: hidden;
+}
+.note-container.left {
+    left: 0;
+}
+.note-container.right {
+    right: 0;
+}
+.piano {
+    display: flex;
+    margin: 30px 0;
+    justify-content: center;
+}
+.key {
+    height: 200px;
+    width: 40px;
+    border: 1px solid #000;
+    box-sizing: border-box;
+    position: relative;
+    cursor: pointer;
+    transition: all 0.1s;
+    touch-action: none;
+}
+.key:active, .key.active {
+    background: #ddd;
+}
+.white {
+    background: #fff;
+}
+.black {
+    background: #000;
+    height: 120px;
+    width: 30px;
+    margin: 0 -15px;
+    z-index: 2;
+}
+.black:active, .black.active {
+    background: #333;
+}
+.note {
+    position: absolute;
+    font-size: 24px;
+    color: #ff00ff;
+    opacity: 0;
+    transition: all 2s;
+    pointer-events: none;
+}
+#played-note {
+    font-size: 120px;
+    height: 150px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-shadow: 0 0 20px;
+    margin-top: -50px;
+    text-align: center;
+}
+#wave-graph {
+    width: 800px;
+    height: 300px;
+    margin-top: -10px;
+    background-color: #222;
+    border: 1px solid #444;
+}
+#graph-info {
+    width: 800px;
+    display: flex;
+    justify-content: space-between;
+    margin-top: 10px;
+    font-size: 14px;
+    text-align: center;
+}
+</style></head><body>
+<div class="main-container">
+    <h1>HarmoniCalc</h1>
+    <div class="subheading">Made by Disruptiva Consulting</div>
+    <div class="piano-container">
+        <div class="note-container left"></div>
+        <div class="piano">
+            <div class="key white" data-note="C"></div>
+            <div class="key black" data-note="C#"></div>
+            <div class="key white" data-note="D"></div>
+            <div class="key black" data-note="D#"></div>
+            <div class="key white" data-note="E"></div>
+            <div class="key white" data-note="F"></div>
+            <div class="key black" data-note="F#"></div>
+            <div class="key white" data-note="G"></div>
+            <div class="key black" data-note="G#"></div>
+            <div class="key white" data-note="A"></div>
+            <div class="key black" data-note="A#"></div>
+            <div class="key white" data-note="B"></div>
+        </div>
+        <div class="note-container right"></div>
+    </div>
+    <div id="played-note"></div>
+    <canvas id="wave-graph" width="800" height="300"></canvas>
+    <div id="graph-info">
+        <span>Amplitude: <span id="amplitude">0</span></span>
+        <span>Frequency: <span id="frequency">0</span> Hz</span>
+        <span>X-axis: -720° to +720°</span>
+        <span>Y-axis: -1 to 1</span>
+    </div>
+</div>
+
+<script>
+const piano = document.querySelector('.piano');
+const playedNote = document.getElementById('played-note');
+const leftContainer = document.querySelector('.note-container.left');
+const rightContainer = document.querySelector('.note-container.right');
+const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+const canvas = document.getElementById('wave-graph');
+const ctx = canvas.getContext('2d');
+const amplitudeEl = document.getElementById('amplitude');
+const frequencyEl = document.getElementById('frequency');
+
+const noteFrequencies = {
+    'C': 261.63, 'C#': 277.18, 'D': 293.66, 'D#': 311.13, 'E': 329.63,
+    'F': 349.23, 'F#': 369.99, 'G': 392.00, 'G#': 415.30, 'A': 440.00,
+    'A#': 466.16, 'B': 493.88
+};
+
+let animationId;
+let currentFrequency = 0;
+let currentAmplitude = 0.5;
+let activeKeys = new Set();
+
+function addEventListeners(eventNames, element, handler) {
+    eventNames.forEach(eventName => {
+        element.addEventListener(eventName, handler);
+    });
+}
+
+function handleStart(e) {
+    e.preventDefault();
+    const key = e.target.closest('.key');
+    if (key && !activeKeys.has(key)) {
+        activeKeys.add(key);
+        key.classList.add('active');
+        playNote(key.dataset.note, key);
+    }
+}
+
+function handleEnd(e) {
+    e.preventDefault();
+    const key = e.target.closest('.key');
+    if (key) {
+        activeKeys.delete(key);
+        key.classList.remove('active');
+    }
+}
+
+function handleCancel(e) {
+    e.preventDefault();
+    const keys = document.querySelectorAll('.key.active');
+    keys.forEach(key => {
+        activeKeys.delete(key);
+        key.classList.remove('active');
+    });
+}
+
+addEventListeners(['mousedown', 'touchstart'], piano, handleStart);
+addEventListeners(['mouseup', 'mouseleave', 'touchend', 'touchcancel'], piano, handleEnd);
+addEventListeners(['touchcancel'], piano, handleCancel);
+
+function playNote(note, key) {
+    playedNote.textContent = note;
+    playedNote.style.color = getRandomColor();
+    
+    // Play the sound
+    const oscillator = audioContext.createOscillator();
+    oscillator.type = 'sine';
+    oscillator.frequency.setValueAtTime(noteFrequencies[note], audioContext.currentTime);
+    
+    const gainNode = audioContext.createGain();
+    gainNode.gain.setValueAtTime(0.7, audioContext.currentTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.00001, audioContext.currentTime + 1);
+    
+    oscillator.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+    
+    oscillator.start();
+    oscillator.stop(audioContext.currentTime + 1);
+    
+    // Create explosion of musical notes on both sides
+    for (let i = 0; i < 15; i++) {
+        createFloatingNote(leftContainer);
+        createFloatingNote(rightContainer);
+    }
+
+    // Update wave graph
+    currentFrequency = noteFrequencies[note];
+    currentAmplitude = 0.5;
+    if (animationId) {
+        cancelAnimationFrame(animationId);
+    }
+    animateWave();
+}
+
+function createFloatingNote(container) {
+    const floatingNote = document.createElement('div');
+    floatingNote.classList.add('note');
+    floatingNote.textContent = Math.random() < 0.5 ? '♪' : '♫';
+    floatingNote.style.left = `${Math.random() * 100}%`;
+    floatingNote.style.top = `${Math.random() * 100}%`;
+    floatingNote.style.fontSize = `${Math.random() * 20 + 20}px`;
+    floatingNote.style.color = getRandomColor();
+    
+    container.appendChild(floatingNote);
+    
+    setTimeout(() => {
+        floatingNote.style.opacity = '1';
+        const direction = container.classList.contains('left') ? 1 : -1;
+        const distance = Math.random() * 200 + 100;
+        floatingNote.style.transform = `
+            translate(${direction * distance}px, ${Math.random() * 400 - 200}px)
+            rotate(${Math.random() * 720 - 360}deg)
+            scale(${Math.random() * 1.5 + 0.5})
+        `;
+    }, 0);
+
+    setTimeout(() => {
+        floatingNote.style.opacity = '0';
+    }, 1500);
+
+    setTimeout(() => {
+        floatingNote.remove();
+    }, 3500);
+}
+
+function getRandomColor() {
+    return `hsl(${Math.random() * 360}, 100%, 50%)`;
+}
+
+function animateWave() {
+    let progress = 0;
+    const duration = 1000; // Animation duration in milliseconds
+    const startTime = performance.now();
+
+    function draw(currentTime) {
+        const elapsedTime = currentTime - startTime;
+        progress = Math.min(elapsedTime / duration, 1);
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        // Draw axes
+        ctx.strokeStyle = '#444';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(0, canvas.height / 2);
+        ctx.lineTo(canvas.width, canvas.height / 2);
+        ctx.moveTo(canvas.width / 2, 0);
+        ctx.lineTo(canvas.width / 2, canvas.height);
+        ctx.stroke();
+
+        // Draw wave
+        ctx.beginPath();
+        ctx.moveTo(0, canvas.height / 2);
+
+        for (let x = 0; x <= canvas.width; x++) {
+            const angle = ((x / canvas.width) * 1440 - 720) * Math.PI / 180;
+            const y = Math.sin(angle * currentFrequency / 440) * currentAmplitude * (canvas.height / 2) + (canvas.height / 2);
+            if (x <= canvas.width * progress) {
+                ctx.lineTo(x, y);
+            }
+        }
+
+        ctx.strokeStyle = 'rgb(75, 192, 192)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        // Update info
+        amplitudeEl.textContent = currentAmplitude.toFixed(2);
+        frequencyEl.textContent = currentFrequency.toFixed(2);
+
+        if (progress < 1) {
+            animationId = requestAnimationFrame(draw);
+        }
+    }
+
+    animationId = requestAnimationFrame(draw);
+}
+
+// Initial graph setup
+ctx.fillStyle = '#222';
+ctx.fillRect(0, 0, canvas.width, canvas.height);
+ctx.strokeStyle = '#444';
+ctx.lineWidth = 1;
+ctx.beginPath();
+ctx.moveTo(0, canvas.height / 2);
+ctx.lineTo(canvas.width, canvas.height / 2);
+ctx.moveTo(canvas.width / 2, 0);
+ctx.lineTo(canvas.width / 2, canvas.height);
+ctx.stroke();
+
+// Prevent default touch behavior
+document.body.addEventListener('touchstart', function(e) {
+    if (e.target.classList.contains('key')) {
+        e.preventDefault();
+    }
+}, { passive: false });
+
+document.body.addEventListener('touchmove', function(e) {
+    e.preventDefault();
+}, { passive: false });
+</script>
+</body></html>
